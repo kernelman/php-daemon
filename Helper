@@ -1,0 +1,109 @@
+<?php namespace longmon\php;
+/**
+ * Helper助手类
+ * @author longmon <1307995200@qq.com>
+ * @copyright (c) 2017
+ */
+class Helper{
+	
+	private static $err_log = "./log";
+	
+	/**
+	 * 日志记录
+	 * @param  string
+	 * @param  string
+	 * @param  boolean
+	 * @return [type]
+	 */
+	public static function log( $data, $file = "error.log" , $append = false ){
+		
+		if( !$append ){
+			$data = date("Y/m/d H:i:s")." : ".$data;
+		}
+		
+		if( is_file($file) && !Log::check_writable( $file ) ) 
+		{
+			trigger_error("File {$file} is unwriable!", E_USER_WARNING);
+			return false;
+		}
+		elseif( !is_file($file) &&  !Log::check_writable( dirname($file) ) )
+		{
+			trigger_error("File {$file} is unwritable!",  E_USER_WARNING);
+			return false;
+		} 
+		
+		if( !file_put_contents( $file, $data, FILE_APPEND | LOCK_EX )  )
+		{
+			return false;
+		}
+		
+		return true;
+		
+	}
+
+	public static function warning( $data, $errno = E_USER_WARNING )
+	{
+		if( DEBUG ) trigger_error( $errno, $data);
+
+		$data = "[WARNING] ". $data;
+		Helper::log( $data, self::$err_log);
+		return true;
+	}
+	
+	protected static function check_writable( $file )
+	{
+		return self::check_file_exists($file) && is_writable( $file );
+	}
+
+	public static function check_file_exists($file){
+		clearstatcache();
+		return is_file( $file );
+	}
+
+	/**
+	 * @param  string $file 
+	 * @return array
+	 */
+	public static function import($file){
+		if( self::check_file_exists($file) ){
+			return include($file);
+		}else{
+			return array();
+		}
+	}
+
+	/**
+	 * 从文件中读取内容 - 
+	 * @param  string
+	 * @return string | false
+	 */
+	public static function get_file_contents( $file ){
+		if( !self::check_file_exists( $file ) ){
+			return false;
+		}
+		if( !self::check_writable($file) ){
+			return false;
+		}
+		return file_get_contents($file);
+	}
+
+	public static function put_file_contents( $file, $data ){
+		if( !self::check_file_exists($file)  ){
+			if( is_dir( dirname($file) )  ){
+				if( !self::check_writable(dirname($file) ) ){
+					self::warning("File({$file}) fail to put contents into! permission denied!");
+					return false;
+				}else{
+					return file_put_contents($file, $data, LOCK_EX);
+				}
+			}else{
+				self::warning("write contents into file failed. no such directory: ".dirname($file) );
+				return false;
+			}
+		}elseif(self::check_writable( $file ) ){ 
+			return file_put_contents( $file, $data, LOCK_EX );
+		}
+		return false;
+
+	}
+}
