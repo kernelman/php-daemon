@@ -2,5 +2,6 @@
 
 return array(
 	"proc_num" => 5,
-	"log_dir" => "./log",
+	"logdir" => "./log",
+	"runtime_dir" => "./log",
 );
