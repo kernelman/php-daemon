@@ -78,9 +78,6 @@ class Helper{
 		if( !self::check_file_exists( $file ) ){
 			return false;
 		}
-		if( !self::check_writable($file) ){
-			return false;
-		}
 		return file_get_contents($file);
 	}
 
@@ -90,7 +87,6 @@ class Helper{
 				return false;
 			}
 		}
-		echo "ai\n";
 		return file_put_contents( $file, $data, LOCK_EX);
 	}
 	
@@ -114,40 +110,23 @@ class Helper{
 	}
 	
 	/**
-	 * 解析run文件
+	 * 
 	 * 返回一个数据
 	 */
-	public static function parse_run_file($file)
+	public static function get_pid_from_file($file)
 	{
-		if( !$data_string = self::get_file_contents($file) )
-		{
-			return [];
-		}
-		$retData = json_decode($data_string, true);
-		return is_array($retData)?$retData:[];
+		return self::get_file_contents($file);
 	}
 	
 	/**
 	 * 只支持写两维数组
 	 */
-	public function write_run_file($file, $data)
+	public function write_pid_file($file, $pid)
 	{
-		$fileContent = self::get_file_contents($file);
-		$fileData = json_encode($fileContent, true);
-		$fileData = is_array($fileData)?$fileData:[];
-		foreach($data as $k=>$v){
-			if( !isset($fileData[$k]) ){
-				$fileData[$k] = $v;
-				continue;
-			}
-			if(is_array($v)){
-				$fileData[$k] = array_merge($fileData[$k], $v);
-			}else{
-				$fileData[$k] = $v;
-			}
+		if( $pid === NULL ){
+			return touch($file);
 		}
-		$json_data = json_encode($fileData);echo $json_data,"\n";
-		return self::put_contents_to_file($file, $json_data);
+		return self::put_contents_to_file($file, $pid);
 	}
 	
 }
