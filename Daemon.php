@@ -1,7 +1,8 @@
 <?php namespace longmon\php;
-
+/**
+ * 单例模式 - 同一进程中，只能有一个实例
+ */
 use \swoole_process;
-
 class Daemon
 {
 	private $index 		= 0;
@@ -14,8 +15,6 @@ class Daemon
 	private $task		= NULL;
 	private $proc_num	= 1;
 	private static $run_mode = 0; //0表示单任务版本， 1表示多任务版本
-	private $reboot     = 0; //1表示子进程退出，
-	
 	private static $instance = NULL;
 	
 	/**
@@ -34,7 +33,7 @@ class Daemon
 	 */
 	public static function multiTaskInstance($proc_name, $proc_num = 1){
 		self::$run_mode = 1;
-		if( self::$instance != NULL ){
+		if( self::$instance == NULL ){
 			self::$instance = new self($proc_name, $proc_num);
 		}
 		return self::$instance;
@@ -49,6 +48,8 @@ class Daemon
 	 */
 	private function __construct( $proc_name, $proc_num = 1 )
 	{
+		define("DAEMON_PATH", __DIR__);
+		
 		self::load_config();
 		
 		if( !Helper::make_dir($this->logdir) || !Helper::make_dir($this->runtime_dir) ){
@@ -82,7 +83,7 @@ class Daemon
 	 */
 	public function run( $task = NULL )
 	{
-		if($task) {$this->task = $task;}
+		if($task && !$this->task ) {$this->task = $task;}
 		if( self::$run_mode == 0 ){
 			return $this->single_task_run();
 		}else{
@@ -99,7 +100,6 @@ class Daemon
 		for( $i = 0; $i < $this->proc_num; $i++ ){
 			$this->create_sub_process($i);
 		}
-		//Helper::write_pid_file($this->pid_file, ["worker"=>$pid]);
 		return true;
 	}
 	
@@ -108,17 +108,18 @@ class Daemon
 		if( count($this->worker) > 0 ){
 			return true;
 		}
-		$jobArray = Helper::import("job.php"); //job文件必须返回指定格式的数组
+		$jobArray = Helper::import( DAEMON_PATH."/job.php" ); //job文件必须返回指定格式的数组
 		if(empty($jobArray) || !is_array($jobArray) ){
 			return false;
 		}
+		print_r($jobArray);
 		$no = 0;
 		foreach( $jobArray as $name => $job ){
 			if(!isset($job['task'])){
 				continue;
 			}
 			$task = $job['task'];
-			$proc_num = isset($job['proc_num'])?intval($job['proc_num']):0;
+			$proc_num = isset($job['proc_num'])?intval($job['proc_num']):1;
 			for( $m = 0; $m < $proc_num; $m++ ){
 				$this->create_sub_process($no, $name, $task);
 				$no++;
@@ -155,7 +156,7 @@ class Daemon
 	{
 		$proc = new swoole_process(function( swoole_process $worker)use($index, $sub_proc_name, $sub_proc_task){
 			
-			$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")."worker";
+			$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")." worker";
 			
 			//$this->register_subproc_signal_handler();
 			
@@ -228,7 +229,6 @@ class Daemon
 	{
 		Helper::log("php-daemon starting ...", $this->logdir."/run.log");
 		if($pid = Helper::get_pid_from_file($this->pid_file)){
-			var_dump($pid);
 			if( swoole_process::kill($pid, 0) ){
 				Helper::log(" failed!(master process has been started with pid:{$pid})\n", $this->logdir."/run.log", true );
 				exit(0);
@@ -262,7 +262,7 @@ class Daemon
 		
 		swoole_process::signal(SIGCHLD, function($signo){
 			Helper::log("Caught a SIGCHLD({$signo}) signal\n", $this->logdir."/run.log");
-			if($ret = swoole_process::wait(false)){
+			while($ret = swoole_process::wait(false)){
 				$this->reboot_process($ret['pid']);
 			}
 		});
@@ -285,9 +285,10 @@ class Daemon
 	
 	public function reboot_process($pid)
 	{
-		$index = array_search($pid, $this->worker);
-		if( $index ){
-			$this->create_sub_process($index, $this->worker[$index]['name'], $this->worker[$index]['task']);
+		foreach($this->worker as $index => $worker ){
+			if( $pid == $worker['pid'] ){
+				$this->create_sub_process($index, $worker['name'], $worker['task']);
+			}
 		}
 	}
 	
@@ -306,4 +307,5 @@ class Daemon
 
 /**
  * 同时创建两个实例，并且注册信号句柄的时候会出现不确定的错误
+ * 任务不能出现无限循环的实现代码
  */

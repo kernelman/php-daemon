@@ -1,0 +1,19 @@
+{
+    "name": "longmon/php-daemon",
+    "description": "A daemon process in php with swoole, processing tasks, monitor",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "longmon",
+            "email": "1307995200@qq.com"
+        }
+    ],
+    "minimum-stability": "beta",
+    "require": {},
+    "autoload":{
+        "psr-4":{
+            "longmon\\php\\":"."
+        }
+    }
+}
