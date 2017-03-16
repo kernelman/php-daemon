@@ -359,6 +359,14 @@ class Daemon
 		swoole_process::kill($pid, SIGUSR1);
 	}
 	
+	/**
+	 * 停止服务
+	 * @param  [type]                   $name [description]
+	 * @return [type]                         [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:48:45+0800
+	 */
 	public static function stop($name){
 		$conf = self::static_get_config();
 		$pid_file = $conf['runtime_dir']."/".$name.".pid";
@@ -368,6 +376,27 @@ class Daemon
 			return true;
 		}else{
 			trigger_error("try to kill a unavailable process named {$name}\n", E_USER_WARNING);
+			return false;
+		}
+	}
+
+	/**
+	 * 检测主进程是否存活
+	 * @param  启动的时候设置的进程名称                  $name [description]
+	 * @return int|bool      还存活返回主进程ID，否则返回FALSE
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:49:54+0800
+	 */
+	public static function detect_master_life($name){
+		$conf = self::static_get_config();
+		$pid_file = $conf['runtime_dir']."/".$name.".pid";
+		if($pid = Helper::get_pid_from_file($pid_file))
+		{
+			if(swoole_process::kill($pid, 0)){
+				return $pid;
+			}
+		}else{
 			return false;
 		}
 	}
