@@ -129,4 +129,10 @@ class Helper{
 		return self::put_contents_to_file($file, $pid);
 	}
 	
+	public static function remove_file($file){
+		if( !self::check_file_exists($file) ){
+			return true;
+		}
+		return unlink($file);
+	}
 }
