@@ -134,7 +134,6 @@ class Daemon
 		if(empty($jobArray) || !is_array($jobArray) ){
 			return false;
 		}
-		print_r($jobArray);
 		$no = 0;
 		foreach( $jobArray as $name => $job ){
 			if(!isset($job['task'])){
@@ -162,16 +161,15 @@ class Daemon
 	 */
 	private function create_sub_process( $index, $sub_proc_name = NULL, $sub_proc_task = NULL )
 	{
-		$proc = new swoole_process(function( swoole_process $worker)use($index, $sub_proc_name, $sub_proc_task){
-			
-			$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")." worker";
-			
-			$this->register_subproc_signal_handler(); //子进程内监听信号
+		$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")." worker";
+		$task = $sub_proc_task?$sub_proc_task:self::$task;
+		
+		$proc = new swoole_process(function( swoole_process $worker)use($index, $worker_name, $task){
 			
 			swoole_set_process_name($worker_name);
 			
-			$task = $sub_proc_task?$sub_proc_task:self::$task;
-			
+			$this->register_subproc_signal_handler(); //子进程内监听信号
+
 			$this->task_loop($task, $worker );
 			
 		}, false, false );
@@ -382,8 +380,8 @@ class Daemon
 
 	/**
 	 * 检测主进程是否存活
-	 * @param  启动的时候设置的进程名称                  $name [description]
-	 * @return int|bool      还存活返回主进程ID，否则返回FALSE
+	 * @param  string $name 启动的时候设置的进程名称 
+	 * @return int|bool  存活返回主进程ID，否则返回FALSE
 	 *
 	 * @author:longmonHou
 	 * @since  2017-03-16T15:49:54+0800
