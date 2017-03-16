@@ -1,6 +1,17 @@
 <?php namespace longmon\php;
 /**
- * 单例模式 - 同一进程中，只能有一个实例
+ * 常驻进程任务处理。
+ * 实现原理：一个主进程进行控制高度，子进程处理实际任务。
+ * 子进程数量，处理任务可在进程启动时指定（单任务实例）或使用配置文件（多任务实例）
+ * 可实现无停机重启，(多任务实例）重载任务配置
+ * 
+ * 单例模式 - 同一进程空间不得启动一个以上实例，否则将出现不可预知错误！
+ * 
+ * 开发需知：任务处理的代码不得出现无限死循环，必须有退出机制，否则，当主进程退出时，子进程可能无法平滑退出
+ *
+ * @author longmon<1307995200@qq.com>
+ * @copyright 2017
+ * @license MIT 
  */
 use \swoole_process;
 class Daemon
@@ -19,13 +30,24 @@ class Daemon
 	private static $run_mode = 0; //0表示单任务版本， 1表示多任务版本
 	private static $instance = NULL;
 	
-	
+	/**
+	 * 克隆魔术函数
+	 * @return [type]                   [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:17:36+0800
+	 */
 	public function __clone(){
 		return NULL;
 	}
 
 	/**
 	 * 构造函数
+	 * @param  string                   $proc_name [description]
+	 * @param  integer                  $proc_num  [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:18:17+0800
 	 */
 	private function __construct( $proc_name, $proc_num = 1 )
 	{
@@ -60,7 +82,12 @@ class Daemon
 	}
 
 	/**
-	 * 执行开始
+	 * 开始执行
+	 * @param  [type]                   $task [description]
+	 * @return [type]                         [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:18:39+0800
 	 */
 	public function run( $task = NULL )
 	{
@@ -72,6 +99,13 @@ class Daemon
 		}
 	}
 	
+	/**
+	 * 单任务模式入口
+	 * @return [type]                   [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:18:53+0800
+	 */
 	public function single_task_run()
 	{
 		if( count($this->worker) > 0 ){
@@ -84,6 +118,13 @@ class Daemon
 		return true;
 	}
 	
+	/**
+	 * 多任务模式入口
+	 * @return [type]                   [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:19:08+0800
+	 */
 	public function multi_task_run()
 	{
 		if( count($this->worker) > 0 ){
@@ -111,6 +152,13 @@ class Daemon
 	
 	/**
 	 * 创建子进程
+	 * @param  [type]                   $index         [description]
+	 * @param  [type]                   $sub_proc_name [description]
+	 * @param  [type]                   $sub_proc_task [description]
+	 * @return [type]                                  [description]
+	 *
+	 * @author:longmonHou
+	 * @since  2017-03-16T15:19:24+0800
 	 */
 	private function create_sub_process( $index, $sub_proc_name = NULL, $sub_proc_task = NULL )
 	{
@@ -118,7 +166,7 @@ class Daemon
 			
 			$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")." worker";
 			
-			$this->register_subproc_signal_handler();
+			$this->register_subproc_signal_handler(); //子进程内监听信号
 			
 			swoole_set_process_name($worker_name);
 			
@@ -126,23 +174,22 @@ class Daemon
 			
 			$this->task_loop($task, $worker );
 			
-		}, false );
+		}, false, false );
 		
 		$pid = $proc->start();
 		$this->worker[$index] = ["pid"=>$pid, "name"=>$sub_proc_name, "task"=>$sub_proc_task];
 		return $pid;
 	}
 	
-		/**
+	/**
 	 * 循环处理任务
-	 * 要求任务体内不得出现无限循环的逻辑, 否则
+	 * 要求任务体内不得出现无限循环的逻辑, 否则子进程将无法退出
 	 */
 	private function task_loop($task, &$worker )
 	{
 		for(;;){
 			$this->process_task( $task );
 			if($this->reboot == 1){
-				$this->reboot = 0;
 				exit(0);
 			}
 			$this->detect_master_alive( $worker );
