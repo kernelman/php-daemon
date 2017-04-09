@@ -61,6 +61,8 @@ class Daemon
 		
 		$this->pid_file = $this->log_dir."/".$this->proc_name.".pid";
 
+		$this->pid_file = str_replace(" ", "-", $this->pid_file );
+
 		$this->proc_name = $name;
 		
 		$this->master_pid = posix_getpid();
@@ -185,41 +187,41 @@ class Daemon
 	 */
 	public function concurrent_control()
 	{
-		Helper::log("php-daemon starting ...", $this->logdir."/run.log");
+		Helper::log("php-daemon starting ...", $this->log_dir."/run.log");
 		if($pid = Helper::get_pid_from_file($this->pid_file)){
 			if( swoole_process::kill($pid, 0) ){
-				Helper::log(" failed!(master process has been started with pid:{$pid})\n", $this->logdir."/run.log", true );
+				Helper::log(" failed!(master process has been started with pid:{$pid})\n", $this->log_dir."/run.log", true );
 				exit(0);
 			}
 		}
 		if( !Helper::write_pid_file($this->pid_file, $this->master_pid) ){
-			Helper::log(" failed!(write to pid file failed)\n", $this->logdir."/run.log", true);
+			Helper::log(" failed!(write to pid file failed)\n", $this->log_dir."/run.log", true);
 			exit(0);
 		}
-		Helper::log(" Sucess!\n", $this->logdir."/run.log", true);
+		Helper::log(" Sucess!\n", $this->log_dir."/run.log", true);
 		return;
 	}
 	
 	public function register_signal_handler()
 	{
 		swoole_process::signal(SIGUSR1, function($signo){
-			Helper::log("Caught a SIGUSR1({$signo}) signal\n", $this->logdir."/run.log");
+			Helper::log("Caught a SIGUSR1({$signo}) signal\n", $this->log_dir."/run.log");
 			$this->update_timestamp();
 		});
 		
 		swoole_process::signal(SIGUSR2, function($signo){
-			Helper::log("Caught a SIGUSR2({$signo}) signal\n", $this->logdir."/run.log");
+			Helper::log("Caught a SIGUSR2({$signo}) signal\n", $this->log_dir."/run.log");
 			$this->kill_all_sub_process();
 		});
 		
 		swoole_process::signal(SIGTERM, function($signo){
-			Helper::log("Caught a SIGTERM({$signo}) signal\n", $this->logdir."/run.log");
+			Helper::log("Caught a SIGTERM({$signo}) signal\n", $this->log_dir."/run.log");
 			Helper::remove_file($this->pid_file);
 			swoole_process::kill($this->master_pid, SIGKILL);
 		});
 		
 		swoole_process::signal(SIGCHLD, function($signo){
-			Helper::log("Caught a SIGCHLD({$signo}) signal\n", $this->logdir."/run.log");
+			Helper::log("Caught a SIGCHLD({$signo}) signal\n", $this->log_dir."/run.log");
 			while($ret = swoole_process::wait(false)){
 				$this->reboot_process($ret['pid']);
 			}
@@ -306,7 +308,8 @@ class Daemon
 	 */
 	public static function reload($name){
 		$conf = self::static_get_config();
-		$pid_file = $conf['runtime_dir']."/".$name.".pid";
+		$pid_file = $conf['log_dir']."/".$name.".pid";
+		$pid_file = strtolower(str_replace(" ", "-", $pid_file));
 		$pid = Helper::get_pid_from_file($pid_file);
 		swoole_process::kill($pid, SIGUSR1);
 	}
@@ -322,7 +325,8 @@ class Daemon
 	public static function stop($name){
 
 		$conf = self::static_get_config();
-		$pid_file = $conf['runtime_dir']."/".$name.".pid";
+		$pid_file = $conf['log_dir']."/".$name.".pid";
+		$pid_file = strtolower(str_replace(" ", "-", $pid_file));
 		if($pid = Helper::get_pid_from_file($pid_file))
 		{
 			swoole_process::kill($pid, SIGTERM);
