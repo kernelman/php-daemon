@@ -1,4 +1,4 @@
-<?php namespace longmon\php;
+<?php namespace longmon\Php;
 /**
  * 常驻进程任务处理。
  * 实现原理：一个主进程进行控制高度，子进程处理实际任务。
@@ -14,20 +14,20 @@
  * @license MIT 
  */
 use \swoole_process;
+use \swoole_table;
 class Daemon
 {
 	private $index 		= 0;
 	private $master_pid = 0;
 	private $proc_name 	= "php-daemon";
 	private $worker 	= array();
-	private $logdir		= "./log";
-	private $runtime_dir= "./run";
-	private $pid_file 	= "./run/php-daemon.pid";
+	private $log_dir		= "./log";
+	private $pid_file 	= "./log/php-daemon.pid";
 	private $proc_num	= 1;
-	private $reboot 	= 0;
+	private $update_timestamp = 0;
+	private $task 		= NULL;   //处理任务
+	private $mem_table 	= NULL;   //共享内存表
 	
-	private static $task= NULL;   //处理任务
-	private static $run_mode = 0; //0表示单任务版本， 1表示多任务版本
 	private static $instance = NULL;
 	
 	/**
@@ -49,36 +49,32 @@ class Daemon
 	 * @author:longmonHou
 	 * @since  2017-03-16T15:18:17+0800
 	 */
-	private function __construct( $proc_name, $proc_num = 1 )
+	private function __construct($name)
 	{
 		define("DAEMON_PATH", __DIR__);
 		
-		self::load_config();
-		
-		if( !Helper::make_dir($this->logdir) || !Helper::make_dir($this->runtime_dir) ){
-			exit();
-		}
-		if( !function_exists("swoole_set_process_name") )
-		{
-			trigger_error("swoole module dose not installed!", E_USER_WARNING );
-			Helper::warning("swoole module dose not installed!", E_USER_WARNING );
-			exit;
-		}
-		swoole_process::daemon(); //  set daemon mode
+		$this->load_config();
 
-		$this->proc_num = $proc_num?$proc_num:$this->proc_num;
+		$this->check_environment();
 		
-		$this->proc_name = $proc_name?$proc_name:$this->proc_name;
+		swoole_process::daemon(); //  set daemon mode		
 		
-		$this->pid_file = $this->runtime_dir."/".$this->proc_name.".pid";
+		$this->pid_file = $this->log_dir."/".$this->proc_name.".pid";
+
+		$this->proc_name = $name;
 		
 		$this->master_pid = posix_getpid();
+
+		$this->update_timestamp = time();
 		
 		$this->concurrent_control(); //并发控制
 		
 		swoole_set_process_name( $this->proc_name ." master process" );
 
+		$this->mem_table = $this->create_mem_table();
+
 		$this->register_signal_handler(); //信号控制注册
+
 	}
 
 	/**
@@ -91,63 +87,16 @@ class Daemon
 	 */
 	public function run( $task = NULL )
 	{
-		if($task && !self::$task ) { self::$task = $task;}
-		if( self::$run_mode == 0 ){
-			return $this->single_task_run();
-		}else{
-			return $this->multi_task_run();
-		}
-	}
-	
-	/**
-	 * 单任务模式入口
-	 * @return [type]                   [description]
-	 *
-	 * @author:longmonHou
-	 * @since  2017-03-16T15:18:53+0800
-	 */
-	public function single_task_run()
-	{
 		if( count($this->worker) > 0 ){
 			return true;
 		}
-		if( !self::$task ){return false;};
-		for( $i = 0; $i < $this->proc_num; $i++ ){
+		self::load_config();
+		for($i=0;$i<$this->proc_num;$i++){
 			$this->create_sub_process($i);
 		}
 		return true;
 	}
-	
-	/**
-	 * 多任务模式入口
-	 * @return [type]                   [description]
-	 *
-	 * @author:longmonHou
-	 * @since  2017-03-16T15:19:08+0800
-	 */
-	public function multi_task_run()
-	{
-		if( count($this->worker) > 0 ){
-			return true;
-		}
-		$jobArray = Helper::import( DAEMON_PATH."/job.php" ); //job文件必须返回指定格式的数组
-		if(empty($jobArray) || !is_array($jobArray) ){
-			return false;
-		}
-		$no = 0;
-		foreach( $jobArray as $name => $job ){
-			if(!isset($job['task'])){
-				continue;
-			}
-			$task = $job['task'];
-			$proc_num = isset($job['proc_num'])?intval($job['proc_num']):1;
-			for( $m = 0; $m < $proc_num; $m++ ){
-				$this->create_sub_process($no, $name, $task);
-				$no++;
-			}
-		}
-		return true;
-	}
+
 	
 	/**
 	 * 创建子进程
@@ -159,23 +108,22 @@ class Daemon
 	 * @author:longmonHou
 	 * @since  2017-03-16T15:19:24+0800
 	 */
-	private function create_sub_process( $index, $sub_proc_name = NULL, $sub_proc_task = NULL )
+	private function create_sub_process( $index )
 	{
-		$worker_name = $this->proc_name.( $sub_proc_name?" ".$sub_proc_name:" ")." worker";
-		$task = $sub_proc_task?$sub_proc_task:self::$task;
+		$worker_name = $this->proc_name." worker";
+
+		$task = $this->task;
 		
 		$proc = new swoole_process(function( swoole_process $worker)use($index, $worker_name, $task){
 			
 			swoole_set_process_name($worker_name);
 			
-			$this->register_subproc_signal_handler(); //子进程内监听信号
-
 			$this->task_loop($task, $worker );
 			
 		}, false, false );
 		
 		$pid = $proc->start();
-		$this->worker[$index] = ["pid"=>$pid, "name"=>$sub_proc_name, "task"=>$sub_proc_task];
+		$this->worker[$index] = $pid;
 		return $pid;
 	}
 	
@@ -187,9 +135,7 @@ class Daemon
 	{
 		for(;;){
 			$this->process_task( $task );
-			if($this->reboot == 1){
-				exit(0);
-			}
+
 			$this->detect_master_alive( $worker );
 		}
 	}
@@ -202,8 +148,7 @@ class Daemon
 		if(is_callable($callFunc) )
 		{
 			return call_user_func($callFunc);
-		}
-		else if(is_array($callFunc) && count($callFunc) >= 2 ){
+		}else if(is_array($callFunc) && count($callFunc) >= 2 ){
 			list($obj, $method, $param ) = $callFunc;
 			if( !$param ){
 				$param = [];
@@ -227,7 +172,11 @@ class Daemon
 	public function detect_master_alive(&$worker)
 	{
 		if( !swoole_process::kill($this->master_pid, 0) ){
-			$worker->exit();
+			$worker->exit(0);
+		}
+		$reboot_process = $this->mem_table->get("reboot_process");
+		if( $reboot_process['timestamp'] > $this->update_timestamp ){
+			$worker->exit(0);
 		}
 	}
 	
@@ -255,7 +204,7 @@ class Daemon
 	{
 		swoole_process::signal(SIGUSR1, function($signo){
 			Helper::log("Caught a SIGUSR1({$signo}) signal\n", $this->logdir."/run.log");
-			$this->reboot_all_process();
+			$this->update_timestamp();
 		});
 		
 		swoole_process::signal(SIGUSR2, function($signo){
@@ -277,17 +226,17 @@ class Daemon
 		});
 	}
 	
-	private function reboot_all_process()
+	private function update_timestamp()
 	{
-		foreach($this->worker as $index=>$worker){
-			swoole_process::kill($worker['pid'], SIGUSR1);
-		}
+		$now = time();
+		$this->update_timestamp = $now;
+		$this->mem_table->set("reboot_process",array("timestamp"=>$now));
 	}
 	
 	private function kill_all_sub_process()
 	{
-		foreach($this->worker as $index=>$worker){
-			swoole_process::kill($worker['pid'], SIGTERM);
+		foreach($this->worker as $pid ){
+			swoole_process::kill($pid, SIGTERM);
 		}
 		$this->worker = [];
 		return;
@@ -295,10 +244,9 @@ class Daemon
 	
 	public function reboot_process($pid)
 	{
-		foreach($this->worker as $index => $worker ){
-			if( $pid == $worker['pid'] ){
-				$this->create_sub_process($index, $worker['name'], $worker['task']);
-			}
+		$index = array_search($pid, $this->worker);
+		if( $index !== NULL ){
+			$this->create_sub_process($index);
 		}
 	}
 	
@@ -316,36 +264,42 @@ class Daemon
 		return Helper::import("conf/php-daemon.php");
 	}
 	
-	public function register_subproc_signal_handler()
+
+	private function check_environment()
 	{
-		swoole_process::signal(SIGUSR1, function($sig){
-			$this->reboot = 1;
-		});
+		if( !Helper::make_dir($this->log_dir) ){
+			exit();
+		}
+		if( !function_exists("swoole_set_process_name") )
+		{
+			Helper::warning("swoole module dose not installed!" );
+			exit;
+		}
+	}
+	private function create_mem_table()
+	{
+		$table = new swoole_table(1);
+		$table->column('timestamp',swoole_table::TYPE_INT, 4);
+		$table->create();
+		return $table;
 	}
 	
-	/************************************* 操作API *****************************
-	
-	/**
-	 * 单任务入口
-	 */
-	public static function start_single_task($proc_name, $proc_num = 1){
-		self::$run_mode = 0;
-		if( self::$instance == NULL ){
-			self::$instance = new self($proc_name, $proc_num);
+	/************************************* 操作API ******************************/
+
+	public static function newInstance($name)
+	{
+		if( self::$instance == NULL )
+		{
+			self::$instance = new self($name);
 		}
 		return self::$instance;
 	}
-	
-	/**
-	 * 多任务入口
-	 */
-	public static function start_multi_task($proc_name, $proc_num = 1){
-		self::$run_mode = 1;
-		if( self::$instance == NULL ){
-			self::$instance = new self($proc_name, $proc_num);
-		}
-		return self::$instance;
+
+	public static function start($name)
+	{
+		return self::newInstance($name)->run();
 	}
+	
 	
 	/**
 	 * 重启服务
@@ -366,6 +320,7 @@ class Daemon
 	 * @since  2017-03-16T15:48:45+0800
 	 */
 	public static function stop($name){
+
 		$conf = self::static_get_config();
 		$pid_file = $conf['runtime_dir']."/".$name.".pid";
 		if($pid = Helper::get_pid_from_file($pid_file))
@@ -376,6 +331,12 @@ class Daemon
 			trigger_error("try to kill a unavailable process named {$name}\n", E_USER_WARNING);
 			return false;
 		}
+	}
+
+	public static function restart($name)
+	{
+		self::stop($name);
+		self::start($name);
 	}
 
 	/**
@@ -398,6 +359,8 @@ class Daemon
 			return false;
 		}
 	}
+
+
 }
 
 /**

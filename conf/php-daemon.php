@@ -2,6 +2,10 @@
 
 return array(
 	"proc_num" => 5,
-	"logdir" => "./log",
-	"runtime_dir" => "./log",
+	"log_dir" => "./log",
+	"pid_file" => "./log/php-daemon.pid",
+	"task" => function(){
+		echo "php daemon echo\n";
+		sleep(10);
+	}
 );

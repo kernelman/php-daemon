@@ -1,4 +1,4 @@
-<?php namespace longmon\php;
+<?php namespace longmon\Php;
 /**
  * Helper助手类
  * @author longmon <1307995200@qq.com>
@@ -38,12 +38,11 @@ class Helper{
 		
 	}
 
-	public static function warning( $data, $errno = E_USER_WARNING )
+	public static function warning( $data )
 	{
-	if( defined("DEBUG") && DEBUG ) trigger_error( $errno, $data);
 
 		$data = "[WARNING] ". $data;
-		Helper::log( $data, self::$err_log);
+		Helper::log( $data );
 		return true;
 	}
 	
